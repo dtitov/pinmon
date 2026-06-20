@@ -11,6 +11,8 @@ This project is based on the original work by [jan-provaznik](https://github.com
 - **Dual-stack compatibility** - works on both X11 (`wmctrl`) and Wayland (GNOME "Window Calls" extension)
 - **Configurable display** - target monitor geometry and font size via environment variables
 
+<img width="719.5" height="1279.5" alt="Screenshot From 2026-06-20 15-28-14" src="https://github.com/user-attachments/assets/e35782cf-8c0d-473d-b68c-d7e37482c7b6" />
+
 ## Requirements
 
 | Component | Purpose |
