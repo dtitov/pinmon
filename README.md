@@ -82,7 +82,7 @@ This script installs an XDG autostart entry (`~/.config/autostart/pinmon.desktop
 ./pinmon.sh
 ```
 
-This launches `pinmon` inside kitty, pins the window to a pre-configured monitor, and switches it to fullscreen. Press **Enter** after the monitoring process exits to close the terminal.
+This launches `pinmon` inside kitty, pins the window to the monitor specified by `TARGET_MONITOR`, and switches it to fullscreen. Press **Enter** after the monitoring process exits to close the terminal.
 
 ### Customization
 
@@ -90,27 +90,28 @@ All launch parameters are environment variables with sensible defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TARGET_X` | `5120` | Monitor X origin in global layout |
-| `TARGET_Y` | `2880` | Monitor Y origin in global layout |
+| `TARGET_MONITOR` | `HDMI-3` | Target monitor name/ID (used for auto-detection) |
+| `TARGET_X` | *(auto-detected)* | Monitor X origin in global layout |
+| `TARGET_Y` | *(auto-detected)* | Monitor Y origin in global layout |
 | `TARGET_W` | `1728` | Window width (pixels) |
 | `TARGET_H` | `3072` | Window height (pixels) |
-| `FONT_SIZE` | `21` | Kitty font size |
+| `FONT_SIZE` | `28` | Kitty font size |
 
-Override any value when launching:
+By default, `pinmon.sh` automatically infers `TARGET_X` and `TARGET_Y` from your monitor's name or ID using `xrandr`. You still have full control - override any value when launching:
 
 ```bash
-TARGET_X=5120 FONT_SIZE=28 ./pinmon.sh
+TARGET_MONITOR="DP-1" TARGET_X=0 FONT_SIZE=28 ./pinmon.sh
 ```
 
-### Monitor coordinates
+### Monitor auto-detection
 
-Find your target monitor's top-left corner with:
+`pinmon.sh` dynamically queries `xrandr --query` for the monitor specified by `TARGET_MONITOR` and extracts its position and resolution. No manual coordinate configuration is needed - just set `TARGET_MONITOR` to your desired output (e.g. `HDMI-3`, `DP-1`, `eDP-1`).
+
+To find available monitors and their IDs, run:
 
 ```bash
 xrandr --listmonitors
 ```
-
-Look for the `+X+Y` offset of the screen you want. For example, `HDMI-3 +5120+2880 1728×3072+5120+2880`.
 
 ### Manual run (no launcher)
 
