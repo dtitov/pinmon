@@ -6,8 +6,6 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 TARGET_MONITOR="${TARGET_MONITOR:-HDMI-3}"    # Configurable monitor name/ID
-TARGET_W=${TARGET_W:-1728}                    # Fallback width
-TARGET_H=${TARGET_H:-3072}                    # Fallback height
 FONT_SIZE=${FONT_SIZE:-28}
 
 WM_CLASS="pinmon-monitor"
@@ -16,29 +14,72 @@ WM_CLASS="pinmon-monitor"
 KITTY_SOCKET="${XDG_RUNTIME_DIR:-/tmp}/kitty-pinmon-socket"
 
 # ---------------------------------------------------------------------------
-# Dynamically detect the target monitor's position & size from xrandr
-# Expected line format: HDMI-3 connected 1728x3072+5120+2880 inverted ...
+# Get monitor position & size from GNOME's monitors.xml (correct for Wayland/Xwayland)
+# Falls back to xrandr if monitors.xml doesn't have the target.
 # ---------------------------------------------------------------------------
-MON_INFO=$(xrandr --query 2>/dev/null | grep "${TARGET_MONITOR} connected")
-if [ -n "$MON_INFO" ]; then
-    # Extract resolution (WIDTHxHEIGHT)
-    RES=$(echo "$MON_INFO" | grep -oE '[0-9]+x[0-9]+' | head -1)
-    TARGET_W=${RES%%x*}
-    TARGET_H=${RES##*x}
+MON_X="" MON_Y="" MON_W="" MON_H="" MON_NAME=""
+
+CONF="$HOME/.config/monitors.xml"
+if [ -f "$CONF" ]; then
+    # Parse monitors.xml; output is: NAME X Y W H (space-separated)
+    MON_DATA=$(python3 << PYEOF
+import xml.etree.ElementTree as ET, sys
+tree = ET.parse("$CONF")
+for lm in tree.findall(".//logicalmonitor"):
+    connector = lm.find(".//connector")
+    if connector is None: continue
+    name = connector.text
+    x = int(lm.find("x").text)
+    y = int(lm.find("y").text)
+    mode = lm.find(".//mode")
+    w = int(mode.find("width").text)
+    h = int(mode.find("height").text)
+    print(f"{name} {x} {y} {w} {h}")
+PYEOF
+    )
     
-    # Extract position (+X+Y) safely by splitting on '+' delimiters
-    POS=$(echo "$MON_INFO" | grep -oE '\+[0-9]+\+[0-9]+' | head -1)
-    TARGET_X=$(echo "$POS" | cut -d'+' -f2)
-    TARGET_Y=$(echo "$POS" | cut -d'+' -f3)
-    
-    echo "[pinmon.sh] Dynamically detected ${TARGET_MONITOR} at +${TARGET_X}+${TARGET_Y} (${TARGET_W}x${TARGET_H})"
-else
-    echo "[pinmon.sh] ERROR: '${TARGET_MONITOR}' not found in xrandr output." >&2
+    # Find the target monitor (case-insensitive prefix match on connector name before dash)
+    TARGET_PREFIX=$(echo "$TARGET_MONITOR" | cut -d- -f1 | tr '[:upper:]' '[:lower:]')
+    while read -r name x y w h; do
+        NAME_LOWER=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+        if [[ "$NAME_LOWER" == ${TARGET_PREFIX}* ]]; then
+            MON_NAME="$name"
+            MON_X="$x"
+            MON_Y="$y"
+            MON_W="$w"
+            MON_H="$h"
+            break
+        fi
+    done <<< "$MON_DATA"
+fi
+
+# Fall back to xrandr if monitors.xml didn't provide the target
+if [ -z "$MON_X" ]; then
+    MON_INFO=$(xrandr --query 2>/dev/null | grep "${TARGET_MONITOR} connected")
+    if [ -n "$MON_INFO" ]; then
+        MON_NAME=$(echo "$MON_INFO" | awk '{print $1}')
+        local RES
+        RES=$(echo "$MON_INFO" | grep -oE '[0-9]+x[0-9]+' | head -1)
+        MON_W=${RES%%x*}
+        MON_H=${RES##*x}
+        
+        local POS
+        POS=$(echo "$MON_INFO" | grep -oE '\+[0-9]+\+[0-9]+' | head -1)
+        MON_X=$(echo "$POS" | cut -d'+' -f2)
+        MON_Y=$(echo "$POS" | cut -d'+' -f3)
+    fi
+fi
+
+if [ -z "$MON_X" ]; then
+    echo "[pinmon.sh] ERROR: '${TARGET_MONITOR}' not found in monitors.xml or xrandr." >&2
     exit 1
 fi
 
+# Use physical mode (resolution) for the window size
+echo "[pinmon.sh] Monitor ${MON_NAME:-$TARGET_MONITOR} at +${MON_X}+${MON_Y} (${MON_W}x${MON_H})"
+
 session="${XDG_SESSION_TYPE:-x11}"
-echo "[pinmon.sh] session type: $session -> targeting ${TARGET_X},${TARGET_Y} (${TARGET_W}x${TARGET_H})"
+echo "[pinmon.sh] session type: $session -> targeting ${MON_X},${MON_Y} (${MON_W}x${MON_H})"
 
 # ---------------------------------------------------------------------------
 # X11 path: classic wmctrl move + fullscreen.
@@ -54,12 +95,13 @@ run_x11 () {
 
     wmctrl -x -r "${WM_CLASS}.${WM_CLASS}" -b remove,maximized_vert,maximized_horz
     wmctrl -x -r "${WM_CLASS}.${WM_CLASS}" -b remove,fullscreen
-    wmctrl -x -r "${WM_CLASS}.${WM_CLASS}" -e 0,"$TARGET_X","$TARGET_Y","$TARGET_W","$TARGET_H"
+    wmctrl -x -r "${WM_CLASS}.${WM_CLASS}" -e 0,"$MON_X","$MON_Y","$MON_W","$MON_H"
     wmctrl -x -r "${WM_CLASS}.${WM_CLASS}" -b add,fullscreen
 }
 
 # ---------------------------------------------------------------------------
 # Wayland path: GNOME "Window Calls" extension over D-Bus.
+# The coordinates now come from monitors.xml which matches Mutter's coordinate space.
 # ---------------------------------------------------------------------------
 wc_call () {  # $1 = method, rest = args
     local method="$1"; shift
@@ -113,8 +155,8 @@ for w in data:
 
     # Make sure it is not maximized, then move + size it onto the target monitor.
     wc_call Unmaximize "$winid"  >/dev/null 2>&1 || true
-    wc_call Move    "$winid" "$TARGET_X" "$TARGET_Y" >/dev/null
-    wc_call Resize  "$winid" "$TARGET_W" "$TARGET_H" >/dev/null
+    wc_call Move    "$winid" "$MON_X" "$MON_Y" >/dev/null
+    wc_call Resize  "$winid" "$MON_W" "$MON_H" >/dev/null
 
     # Toggle fullscreen via kitty remote control (allowed under Wayland).
     kitten @ --to "unix:$KITTY_SOCKET" resize-os-window --action toggle-fullscreen \
