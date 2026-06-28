@@ -412,10 +412,7 @@ func deviceReport(index int, device SupportedDevice) error {
 // panelTop renders the top border of a dashboard panel with its title.
 func panelTop(title string) {
 	label := " " + title + " "
-	fill := dashWidth - len([]rune(label))
-	if fill < 0 {
-		fill = 0
-	}
+	fill := max(dashWidth-len([]rune(label)), 0)
 	fmt.Printf(" %s╭%s%s%s%s%s%s╮%s\n",
 		ansiGrey, ansiReset, ansiBold, ansiCyan, label, ansiReset,
 		ansiGrey+strings.Repeat("─", fill), ansiReset)
@@ -436,10 +433,7 @@ func panelSep() {
 // panelLine prints a content line with fixed-width borders and padding. visibleLen is the
 // on-screen width of the content excluding ANSI escapes, used to calculate padding.
 func panelLine(content string, visibleLen int) {
-	pad := contentWidth - visibleLen
-	if pad < 0 {
-		pad = 0
-	}
+	pad := max(contentWidth-visibleLen, 0)
 	fmt.Printf(" %s│%s %s%s%s│%s\n",
 		ansiGrey, ansiReset, content, strings.Repeat(" ", pad),
 		ansiGrey, ansiReset)
