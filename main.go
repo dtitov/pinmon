@@ -261,7 +261,9 @@ func findSupportedDeviceSensorNumber(info nvml.PciInfo) (int, error) {
 }
 
 func main() {
-	defer nvml.Shutdown()
+	defer func() {
+		_ = nvml.Shutdown()
+	}()
 
 	interval := flag.Duration("t", time.Second, "Monitoring interval")
 	flag.Parse()
@@ -371,7 +373,10 @@ func deviceReport(index int, device SupportedDevice) error {
 		matchCurrent = lowerCurrent / upperCurrent
 	}
 
-	memPct := 100 * float64(memUsed) / float64(memTotal)
+	var memPct float64
+	if memTotal > 0 {
+		memPct = 100 * float64(memUsed) / float64(memTotal)
+	}
 	memUsed_ := float64(memUsed) / 1073741824
 	memTotal_ := float64(memTotal) / 1073741824
 
@@ -466,7 +471,7 @@ func makeBar(value float64, scale float64, color string) string {
 	if ratio > 1 {
 		ratio = 1
 	}
-	filled := int(ratio*float64(barWidth) + 0.5)
+	filled := min(int(ratio*float64(barWidth)+0.5), barWidth)
 	empty := barWidth - filled
 	return fmt.Sprintf("%s%s%s%s%s",
 		color, strings.Repeat("█", filled),
